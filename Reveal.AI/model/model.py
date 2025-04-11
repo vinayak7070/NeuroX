@@ -1,50 +1,60 @@
 import pandas as pd
-import cv2
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 import os
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, accuracy_score
-import joblib
 
-# Load image label CSV
-img_df = pd.read_csv("image/finalimg.csv")
+# === Load Text Dataset ===
+text_df = pd.read_csv("/content/drive/MyDrive/REVEAL.AI/data/text samples dataset.csv")  # columns: title, authenticity
 
-# Step 1: Load images & labels
-X_images = []
-y_labels = []
+# === Load Image Dataset ===
+if os.path.exists("/content/drive/MyDrive/REVEAL.AI/data/img.csv"):
+    img_df = pd.read_csv("/content/drive/MyDrive/REVEAL.AI/data/img.csv")  # columns: img_path, Auth
+elif os.path.exists("/content/drive/MyDrive/REVEAL.AI/data/imgs/img.csv"):
+    img_df = pd.read_csv("/content/drive/MyDrive/REVEAL.AI/data/imgs/img.csv")  # columns: img_path, Auth
+else:
+    raise FileNotFoundError("Could not find 'img.csv' in either 'data' or 'data/imgs' directory.")
 
-for index, row in img_df.iterrows():
-    img_path = os.path.join("image", row["img_path"])
-    label = 1 if row["authenticity"].strip().lower() == "real" else 0
+img_folder = "/content/drive/MyDrive/REVEAL.AI/data/imgs/"
 
-    # Read and resize image
-    img = cv2.imread(img_path)
-    if img is not None:
-        img = cv2.resize(img, (64, 64))  # You can change size
-        img_flat = img.flatten()
-        X_images.append(img_flat)
-        y_labels.append(label)
+# === Text Vectorizer Setup ===
+vectorizer = TfidfVectorizer()
+X_text = vectorizer.fit_transform(text_df['title'])
 
-# Convert to numpy
-X = np.array(X_images)
-y = np.array(y_labels)
+# === Text-Based Question Authenticity Check ===
+def check_text_authenticity(question):
+    q_vec = vectorizer.transform([question])
+    similarities = cosine_similarity(q_vec, X_text).flatten()
+    best_match_idx = similarities.argmax()
 
-# Step 2: Split
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+    matched_title = text_df.iloc[best_match_idx]['title']
+    authenticity = text_df.iloc[best_match_idx]['authenticity']
+    score = similarities[best_match_idx]
 
-# Step 3: Train
-model = RandomForestClassifier(n_estimators=100)
-model.fit(X_train, y_train)
+    print("\n🧠 TEXT ANALYSIS RESULT:")
+    print(f"📌 Closest Match: {matched_title}")
+    print(f"🔍 Similarity Score: {score:.2f}")
+    print(f"✅ Verdict: {authenticity.upper()}")
 
-# Step 4: Evaluate
-y_pred = model.predict(X_test)
-print("🎯 Image Classifier Accuracy:", accuracy_score(y_test, y_pred))
-print("📊 Classification Report:\n", classification_report(y_test, y_pred))
+    return matched_title, authenticity, score  # ✅ FIXED: returning 3 values
 
-# Step 5: Save model
-joblib.dump(model, "revealai_image_model.pkl")
+# === Image-Based Authenticity Check ===
+def check_image_authenticity(image_filename):
+    if image_filename not in img_df['img_path'].values:
+        print("\n🖼️ IMAGE ANALYSIS RESULT:")
+        print("⚠️ Image not found in dataset.")
+        return "unknown"
 
-print("✅ Image fake/real model saved successfully!")
+    result = img_df[img_df['img_path'] == image_filename]['Auth'].values[0]
+    print("\n🖼️ IMAGE ANALYSIS RESULT:")
+    print(f"🖼️ Image: {image_filename}")
+    print(f"✅ Verdict: {result.upper()}")
+    return result
+
+# === Combined (Optional CLI-style) Function ===
+def analyze_input(question=None, image_filename=None):
+    print("======================================")
+    if question:
+        check_text_authenticity(question)
+    if image_filename:
+        check_image_authenticity(image_filename)
+    print("======================================\n")
